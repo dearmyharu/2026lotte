@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+artifacts/model.pkl
+.streamlit/secrets.toml
+.env
