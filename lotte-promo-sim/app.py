@@ -19,22 +19,24 @@ from sim.tools import krw
 
 st.set_page_config(page_title="홈쇼핑 프로모션 시뮬레이터", page_icon="📺", layout="wide")
 RED = "#E60012"
+BASE = os.path.dirname(os.path.abspath(__file__))   # 어느 폴더에서 실행해도 파일을 찾도록
 
 
 # ── 모델·검증 결과 로드 ───────────────────────────────────────────────
 @st.cache_resource(show_spinner="모델을 불러오는 중…")
 def load():
-    path = "artifacts/model.pkl"
+    path = os.path.join(BASE, "artifacts", "model.pkl")
     if not os.path.exists(path):   # 배포 환경에서 모델 파일이 없으면 바로 학습
         from sim.data_gen import generate
         from sim.model import PromoModel
-        df = pd.read_csv("data/broadcasts.csv") if os.path.exists("data/broadcasts.csv") \
+        csv = os.path.join(BASE, "data", "broadcasts.csv")
+        df = pd.read_csv(csv) if os.path.exists(csv) \
             else generate(explore_rate=0.1)[0]
         m = PromoModel(n_boot=20).fit(df)   # 첫 실행 시 약 30초
     else:
         with open(path, "rb") as f:
             m = pickle.load(f)
-    with open("artifacts/validation.json", encoding="utf-8") as f:
+    with open(os.path.join(BASE, "artifacts", "validation.json"), encoding="utf-8") as f:
         rep = json.load(f)
     return m, rep
 
