@@ -52,6 +52,8 @@ def _row(r, base):
         "협력사이익변화": krw(r["partner_delta"]),
         "당겨쓰기(방송후7일 감소주문)": f"{r['pull_forward_orders']:,.0f}건",
         "판촉비부담": f"홈쇼핑 {krw(r['hs_cost'])} / 협력사 {krw(r['partner_cost'])} / 카드사 {krw(r['cardco_cost'])}",
+        "법규점검": (f"협력사 판촉비 분담 {r['partner_share'] * 100:.0f}% — "
+                 + ("대규모유통업법 50% 상한 준수" if r["legal_ok"] else "50% 초과, 위반 소지(협력사 자발적 행사가 아니면 불가)")),
     }
 
 
@@ -129,6 +131,22 @@ def model_validation(report):
     }
 
 
+INDUSTRY_FACTS = {
+    "송출수수료": "TV홈쇼핑 7개사 방송매출 대비 73.4%, 롯데홈쇼핑 69.6%(방송매출 5,098억원 중 3,546억원) [토요경제 2026.7]",
+    "실질수수료율": "TV홈쇼핑 27.7%로 유통 업태 중 유일하게 상승, 판촉비 지급 납품업체 비율 48.7%로 최고 [공정위 조사, 2025.12 보도]",
+    "판촉비분담규제": "대규모유통업법 제11조: 협력사 판촉비 분담 50% 이하, 서면 약정 필수, 협력사 자발적 차별화 행사는 예외. "
+                "2021년 사은품 비용 전부를 협력사에 부담시킨 TV홈쇼핑 6개사 제재 [공정위 2021.12]",
+    "결제채널": "홈쇼핑 구매자의 약 69%가 TV 방송을 보고 모바일·인터넷으로 결제 [한국언론학회 세미나 2024.8]",
+    "정책변화": "2026년 5월 방미통위 홈쇼핑 상생·활력 제고 방안: 중소기업 의무편성(55~80%) 단계적 완화, 정액수수료 방송 편성 확대 검토",
+}
+
+
+def industry_context(topic=None):
+    if topic and topic in INDUSTRY_FACTS:
+        return {topic: INDUSTRY_FACTS[topic]}
+    return INDUSTRY_FACTS
+
+
 # ── OpenAI 함수 호출 스키마 ────────────────────────────────────────────
 _CTX = {
     "type": "object", "description": "방송 조건",
@@ -176,6 +194,8 @@ TOOL_SCHEMAS = [
     _fn("effect_table", "카테고리별 혜택 반응표(혜택마다 주문이 몇 % 늘어나는지)",
         {"category": {"type": "string", "enum": list(CATEGORIES)}}, ["category"]),
     _fn("model_validation", "시뮬레이터의 정확도 검증 결과", {}, []),
+    _fn("industry_context", "홈쇼핑 업계 현황과 규제(송출수수료, 수수료율, 판촉비 분담 규제, 결제 채널, 정책 변화)",
+        {"topic": {"type": "string", "enum": list(INDUSTRY_FACTS)}}, []),
 ]
 
 
@@ -186,6 +206,8 @@ def call_tool(name, args, model, report):
     try:
         if name == "model_validation":
             out = model_validation(report)
+        elif name == "industry_context":
+            out = industry_context(**args)
         else:
             out = fn[name](model, **args)
     except Exception as e:  # 잘못된 입력은 오류 메시지로 돌려줘서 LLM이 고치게 한다

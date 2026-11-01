@@ -39,13 +39,18 @@ CONTEXT_COLS = ["category", "price", "popularity", "slot", "weekend", "host_tier
 GIFT_LABEL = {0: "없음", 1: "실속형", 2: "고급형"}
 
 # ── 비용 분담 기본값 (홈쇼핑 / 협력사 / 카드사) ──────────────────────
+# 대규모유통업법 제11조: 판촉비용 중 납품업자(협력사) 분담은 50%를 넘을 수 없다
+#   (서면 약정 필수, 협력사가 자발적으로 요청한 차별화 행사는 예외).
+# 2021년 공정위는 사은품 비용 전부를 협력사에 부담시킨 TV홈쇼핑 6개사를 제재했다.
+# → 기본값은 '법 준수 분담'으로 둔다. 카드사 분담분은 카드사가 별도로 내는 비용.
 DEFAULT_SHARES = {
-    "card":   {"hs": 0.2, "partner": 0.4, "cardco": 0.4},
-    "gift":   {"hs": 0.0, "partner": 1.0},
+    "card":   {"hs": 0.3, "partner": 0.3, "cardco": 0.4},
+    "gift":   {"hs": 0.5, "partner": 0.5},
     "noint":  {"hs": 0.5, "partner": 0.5},
     "points": {"hs": 1.0, "partner": 0.0},
     "addon":  {"hs": 0.5, "partner": 0.5},
 }
+PARTNER_SHARE_LIMIT = 0.5   # 협력사 판촉비 분담 상한 (대규모유통업법 제11조)
 
 
 def promo_label(p: dict) -> str:

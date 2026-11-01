@@ -62,6 +62,9 @@ with st.sidebar.expander("💳 판촉비 분담 구조 (홈쇼핑 몫)"):
     sh_gift = st.slider("사은품 · 홈쇼핑", 0.0, 1.0, DEFAULT_SHARES["gift"]["hs"], 0.1)
     sh_noint = st.slider("무이자 · 홈쇼핑", 0.0, 1.0, DEFAULT_SHARES["noint"]["hs"], 0.1)
     sh_addon = st.slider("추가혜택 · 홈쇼핑", 0.0, 1.0, DEFAULT_SHARES["addon"]["hs"], 0.1)
+    st.caption("기본값은 대규모유통업법 제11조(협력사 판촉비 분담 50% 이하)를 지키는 분담입니다.")
+    partner_initiated = st.toggle("협력사 자발적 차별화 행사 (50% 상한 예외)", False,
+                                  help="협력사가 스스로 요청한 차별화된 행사는 50% 상한의 예외입니다. 서면 약정이 필요합니다.")
 shares = {
     "card": {"hs": sh_card, "cardco": sh_cardco, "partner": max(0.0, 1 - sh_card - sh_cardco)},
     "gift": {"hs": sh_gift, "partner": 1 - sh_gift},
@@ -73,7 +76,21 @@ st.sidebar.caption("⚠️ 가상 데이터로 학습한 프로토타입입니�
 
 st.title("홈쇼핑 프로모션 시뮬레이터")
 st.caption("어떤 혜택을, 얼마나, 언제 걸어야 '진짜' 이익이 늘어나는가 — "
-           "증분 효과 · 당겨쓰기 · 3자 비용 분담 · 방송 중 타이밍까지")
+           "증분 효과 · 당겨쓰기 · 3자 비용 분담(법규 준수) · 방송 중 타이밍까지")
+
+with st.expander("📈 업계 현황: 왜 지금 이 시뮬레이터가 필요한가"):
+    st.markdown("""
+| 현황 | 수치 | 의미 |
+|---|---|---|
+| 송출수수료 부담 | TV홈쇼핑 7개사 방송매출 대비 **73.4%**, 롯데홈쇼핑 **69.6%** (방송매출 5,098억 원 중 3,546억 원) | 마진이 얇아 효과 없는 판촉비 1원이 곧 손실 |
+| 납품업체 실질수수료율 | TV홈쇼핑 **27.7%**, 유통 업태 중 유일하게 상승 | 협력사 마진도 빠듯 → 판촉비를 더 떠넘길 여지가 없음 |
+| 판촉비 지급 납품업체 비율 | TV홈쇼핑 **48.7%**, 업태 중 최고 | 판촉 의존도가 가장 높은 채널 |
+| 판촉비 분담 규제 | 대규모유통업법 제11조: 협력사 분담 **50% 이하**. 2021년 사은품 비용 전가로 TV홈쇼핑 6개사 제재 | 비용 분담 구조가 최적화의 '제약 조건' |
+| 결제 채널 이동 | 홈쇼핑 구매자의 약 **69%**가 TV를 보고 모바일·인터넷으로 결제 | 방송 혜택의 효과가 앱 매출로 넘어감 → 방송 단위 성과만 보면 왜곡 |
+| 정책 변화 | 2026년 5월 방미통위 '홈쇼핑 상생·활력 제고 방안': 중기 의무편성 완화, 정액수수료 방송 확대 검토 | 편성·수수료 구조가 바뀌면 최적 혜택도 바뀜 → 시뮬레이션으로 즉시 재계산 |
+
+출처: 토요경제(2026.7), 머니투데이·공정위 유통업체 거래관행 조사(2025.12), 아이뉴스24·공정위(2021.12), 뉴스토마토·한국언론학회(2024.8), 뉴시스(2026.5)
+""")
 
 tab_agent, tab_opt, tab_sim, tab_time, tab_eff, tab_val = st.tabs(
     ["🤖 AI 에이전트", "🎯 최적안 찾기", "🧪 직접 시뮬레이션", "⏱️ 추가혜택 타이밍", "📊 혜택 반응표", "✅ 검증"])
@@ -140,7 +157,7 @@ with tab_opt:
     safe = c4.toggle("보수 모드", help="협력사 조건을 평균이 아니라 비관적 시나리오(하위 5%)에서도 지키는 조합만")
     top, allres = optimize(model, ctx, objective="hs" if objective == "홈쇼핑 이익" else "joint",
                            partner_floor=floor, hs_budget=budget or None, safe=safe,
-                           shares=shares, top_k=5)
+                           shares=shares, top_k=5, allow_partner_initiated=partner_initiated)
     base = allres.attrs["baseline"]
     maxp = allres[(allres.card_pct == 10) & (allres.gift_level == 2) & (allres.no_interest == 1)
                   & (allres.points_pct == 5) & (allres.addon_min == 30)].iloc[0]
@@ -169,11 +186,18 @@ with tab_opt:
                      "협력사이익변화(원)": "{:,.0f}", "당겨쓰기(건)": "{:,.0f}",
                      "홈쇼핑판촉비(원)": "{:,.0f}"}), hide_index=True, width="stretch")
 
+    n_illegal = int((~allres["legal_ok"]).sum())
+    if n_illegal and not partner_initiated:
+        st.warning(f"현재 분담 구조에서는 {n_illegal}개 조합이 협력사 판촉비 분담 50%를 넘어 "
+                   "대규모유통업법 위반 소지가 있어 추천에서 제외했어요.")
+    ok = allres["partner_delta" + ("_lo" if safe else "")] >= floor
     plot = allres.assign(
-        협력사=np.where(allres["partner_delta" + ("_lo" if safe else "")] >= floor, "협력사 수용 가능", "협력사 손해"),
+        협력사=np.where(~allres["legal_ok"] & (not partner_initiated), "법규 위반 소지(50% 초과)",
+                     np.where(ok, "협력사 수용 가능", "협력사 손해")),
         이익변화_만원=allres["hs_delta"] / 1e4, 매출증가=allres["lift_pct"])
     fig = px.scatter(plot, x="매출증가", y="이익변화_만원", color="협력사", hover_name="label",
-                     color_discrete_map={"협력사 수용 가능": RED, "협력사 손해": "#BBBBBB"},
+                     color_discrete_map={"협력사 수용 가능": RED, "협력사 손해": "#BBBBBB",
+                                         "법규 위반 소지(50% 초과)": "#6B4EFF"},
                      labels={"매출증가": "주문 증가율(%)", "이익변화_만원": "홈쇼핑 이익 변화(만원)"},
                      title=f"전체 {len(allres)}개 조합: 주문이 많이 늘어도 이익은 줄 수 있다")
     fig.add_hline(y=0, line_dash="dot", line_color="gray")

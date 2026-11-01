@@ -13,7 +13,8 @@ import pandas as pd
 from .minute_profile import share_after
 from .config import (CATEGORIES, SLOT_COST, CARD_OPTIONS, GIFT_OPTIONS, NOINT_OPTIONS,
                      POINT_OPTIONS, ADDON_OPTIONS, GIFT_COST_RATIO, NOINT_COST_RATIO,
-                     POINT_REDEEM, ADDON_COST_RATIO, DEFAULT_SHARES, promo_label)
+                     POINT_REDEEM, ADDON_COST_RATIO, DEFAULT_SHARES, PARTNER_SHARE_LIMIT,
+                     promo_label)
 
 NO_PROMO = dict(card_pct=0, gift_level=0, no_interest=0, points_pct=0, addon_min=0)
 
@@ -56,6 +57,10 @@ def pnl(ctx, promo, orders, post7, base_post7, shares=None):
                 partner_cost=pt_cost, cardco_cost=cardco_cost, lost_post_gmv=lost_post)
 
 
+def _ratio(pt, hs):
+    return float(pt / (pt + hs)) if (pt + hs) > 0 else 0.0
+
+
 def _ctx_frame(ctx, promos):
     return pd.DataFrame([{**ctx, **p} for p in promos])
 
@@ -85,8 +90,11 @@ def evaluate(model, ctx, promos, shares=None):
             "partner_delta": d_pt.mean(), "partner_delta_lo": np.percentile(d_pt, 5),
             "hs_cost": r["hs_cost"].mean(), "partner_cost": r["partner_cost"].mean(),
             "cardco_cost": r["cardco_cost"].mean(),
+            # 법규 점검: 홈쇼핑+협력사 판촉비 중 협력사 몫 (카드사 분담분 제외)
+            "partner_share": _ratio(r["partner_cost"].mean(), r["hs_cost"].mean()),
         })
     out = pd.DataFrame(rows)
+    out["legal_ok"] = out["partner_share"] <= PARTNER_SHARE_LIMIT + 1e-9
     out.attrs["baseline"] = {"orders": base_o.mean(), "hs_profit": base["hs_profit"].mean(),
                              "partner_profit": base["partner_profit"].mean(),
                              "post7": base_p.mean()}
@@ -94,10 +102,12 @@ def evaluate(model, ctx, promos, shares=None):
 
 
 def optimize(model, ctx, objective="hs", partner_floor=0.0, hs_budget=None,
-             min_p_better=0.0, shares=None, top_k=5, include_addon=True, safe=False):
+             min_p_better=0.0, shares=None, top_k=5, include_addon=True, safe=False,
+             allow_partner_initiated=False):
     """
     objective: "hs"(홈쇼핑 이익) 또는 "joint"(홈쇼핑+협력사 합계)
     partner_floor: 협력사 이익 변화 하한(원). 0이면 '협력사가 손해 보지 않는 조합만'.
+    allow_partner_initiated: True면 협력사가 자발적으로 요청한 차별화 행사로 보고 50% 상한 예외 적용
     safe: True면 협력사 조건을 '평균'이 아니라 '비관적 시나리오(하위 5%)'에서도 지키는 조합만
     hs_budget: 홈쇼핑 부담 판촉비 상한(원)
     min_p_better: 이익 증가 확률 최소치 (불확실한 조합 거르기)
@@ -105,6 +115,8 @@ def optimize(model, ctx, objective="hs", partner_floor=0.0, hs_budget=None,
     res = evaluate(model, ctx, all_combos(include_addon), shares)
     pcol = "partner_delta_lo" if safe else "partner_delta"
     feasible = res[res[pcol] >= partner_floor]
+    if not allow_partner_initiated:
+        feasible = feasible[feasible["legal_ok"]]       # 대규모유통업법 50% 분담 상한
     if hs_budget is not None:
         feasible = feasible[feasible["hs_cost"] <= hs_budget]
     feasible = feasible[feasible["p_better"] >= min_p_better]
