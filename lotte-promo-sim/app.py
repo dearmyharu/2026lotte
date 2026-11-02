@@ -31,7 +31,7 @@ def load():
         from sim.model import PromoModel
         csv = os.path.join(BASE, "data", "broadcasts.csv")
         df = pd.read_csv(csv) if os.path.exists(csv) \
-            else generate(explore_rate=0.1)[0]
+            else generate(explore_rate=0.2)[0]
         m = PromoModel(n_boot=20).fit(df)   # 첫 실행 시 약 30초
     else:
         with open(path, "rb") as f:
@@ -56,9 +56,8 @@ ctx = dict(category=cat, slot=slot, price=float(price), popularity=pop,
            weekend=int(weekend), host_tier=host)
 
 with st.sidebar.expander("💳 판촉비 분담 구조 (홈쇼핑 몫)"):
-    st.caption("나머지는 협력사(카드할인은 카드사와 나눔)가 부담")
-    sh_card = st.slider("카드 청구할인 · 홈쇼핑", 0.0, 0.6, DEFAULT_SHARES["card"]["hs"], 0.05)
-    sh_cardco = st.slider("카드 청구할인 · 카드사", 0.0, 0.8, DEFAULT_SHARES["card"]["cardco"], 0.05)
+    st.caption("나머지는 협력사가 부담. 카드 청구할인(롯데카드 5%)은 상시 혜택이라 제외")
+    sh_card = st.slider("즉시할인 · 홈쇼핑", 0.0, 1.0, DEFAULT_SHARES["disc"]["hs"], 0.1)
     sh_gift = st.slider("사은품 · 홈쇼핑", 0.0, 1.0, DEFAULT_SHARES["gift"]["hs"], 0.1)
     sh_noint = st.slider("무이자 · 홈쇼핑", 0.0, 1.0, DEFAULT_SHARES["noint"]["hs"], 0.1)
     sh_addon = st.slider("추가혜택 · 홈쇼핑", 0.0, 1.0, DEFAULT_SHARES["addon"]["hs"], 0.1)
@@ -66,7 +65,7 @@ with st.sidebar.expander("💳 판촉비 분담 구조 (홈쇼핑 몫)"):
     partner_initiated = st.toggle("협력사 자발적 차별화 행사 (50% 상한 예외)", False,
                                   help="협력사가 스스로 요청한 차별화된 행사는 50% 상한의 예외입니다. 서면 약정이 필요합니다.")
 shares = {
-    "card": {"hs": sh_card, "cardco": sh_cardco, "partner": max(0.0, 1 - sh_card - sh_cardco)},
+    "disc": {"hs": sh_card, "partner": 1 - sh_card},
     "gift": {"hs": sh_gift, "partner": 1 - sh_gift},
     "noint": {"hs": sh_noint, "partner": 1 - sh_noint},
     "points": DEFAULT_SHARES["points"],
@@ -76,7 +75,7 @@ st.sidebar.caption("⚠️ 가상 데이터로 학습한 프로토타입입니�
 
 st.title("홈쇼핑 프로모션 시뮬레이터")
 st.caption("어떤 혜택을, 얼마나, 언제 걸어야 '진짜' 이익이 늘어나는가 — "
-           "증분 효과 · 당겨쓰기 · 3자 비용 분담(법규 준수) · 방송 중 타이밍까지")
+           "증분 효과 · 당겨쓰기 · 비용 분담(법규 준수) · 방송 중 타이밍까지")
 
 with st.expander("📈 업계 현황: 왜 지금 이 시뮬레이터가 필요한가"):
     st.markdown("""
@@ -84,6 +83,7 @@ with st.expander("📈 업계 현황: 왜 지금 이 시뮬레이터가 필요�
 |---|---|---|
 | TV방송 매출 감소 | TV홈쇼핑 7개사 2025년 **2조 6,181억 원**, 4년 연속 감소(2012년 이후 최저), 방송 비중 51.5%→46.7% | 방송 한 편의 효율이 더 중요해짐 |
 | 롯데홈쇼핑 실적 | 2025년 매출 9,023억 원(-2.4%), 영업이익 450억 원(-9.6%) → 2026년 2분기 매출 +3.3%, **영업이익 +62.7%** | 고마진 상품·비용 효율화로 '질적 성장' 전환 → 혜택도 이익 기준으로 |
+| 직접 관찰한 혜택 구조 | 공개 편성표 방송 229회(2026.10.23~11.1): 무이자 **93%**, 즉시할인 **30%**(중앙값 10%), 카드 청구할인은 표본 전부 롯데카드 5% 동일 | 무이자는 '개월 수', 할인은 '사용 여부와 폭', 카드할인은 상시 → 시뮬레이터 변수를 이 구조로 설계 |
 | 기존 AI 활용 | 2018년 50여 개 항목 기반 AI 편성 시스템 도입 발표 | 편성 AI(무엇을 언제)를 보완하는 혜택 AI(무엇을 걸고) |
 | 송출수수료 부담 | TV홈쇼핑 7개사 방송매출 대비 **73.4%**, 롯데홈쇼핑 **69.6%** (방송매출 5,098억 원 중 3,546억 원) | 마진이 얇아 효과 없는 판촉비 1원이 곧 손실 |
 | 납품업체 실질수수료율 | TV홈쇼핑 **27.7%**, 유통 업태 중 유일하게 상승 | 협력사 마진도 빠듯 → 판촉비를 더 떠넘길 여지가 없음 |
@@ -110,9 +110,11 @@ with tab_agent:
     if not key:
         key = st.text_input("OpenAI API 키", type="password",
                             help="키는 저장되지 않고 이 세션에서만 쓰입니다.")
+    engine = st.radio("에이전트 엔진", ["OpenAI Agents SDK", "함수 호출(직접 구현)"], horizontal=True,
+                      help="두 엔진은 같은 도구 7개와 같은 근거 검사를 씁니다. SDK에서 오류가 나면 함수 호출 엔진으로 자동 전환합니다.")
     st.markdown("**예시 질문**  \n"
                 "· 금요일 밤 프라임 시간에 가전 방송인데, 협력사 손해 없이 이익 최대인 혜택 조합 추천해줘  \n"
-                "· 뷰티 오전 방송에서 카드 10% vs 사은품 고급형, 뭐가 나아?  \n"
+                "· 뷰티 오전 방송에서 즉시할인 10% vs 전고객 증정, 뭐가 나아?  \n"
                 "· 식품 방송에서 추가혜택은 몇 분에 꺼내는 게 좋아?")
     if "chat" not in st.session_state:
         st.session_state.chat = []
@@ -133,17 +135,29 @@ with tab_agent:
                 with st.spinner("시뮬레이터를 돌리는 중…"):
                     hist = [{"role": m["role"], "content": m["content"]}
                             for m in st.session_state.chat[:-1]][-6:]
+                    os.environ["OPENAI_API_KEY"] = key
+                    used = engine
                     try:
-                        ans, trace, sus = run_agent(q, model, report, history=hist,
-                                                    client=OpenAI(api_key=key))
+                        if engine == "OpenAI Agents SDK":
+                            from sim.agent_sdk import run_agent_sdk
+                            ans, trace, sus = run_agent_sdk(q, model, report, history=hist)
+                        else:
+                            raise RuntimeError("function-calling")
                     except Exception as e:
-                        ans, trace, sus = f"오류가 발생했어요: {e}", [], []
+                        if engine == "OpenAI Agents SDK":
+                            st.caption(f"Agents SDK 오류로 함수 호출 엔진으로 전환했어요: {str(e)[:120]}")
+                        used = "함수 호출(직접 구현)"
+                        try:
+                            ans, trace, sus = run_agent(q, model, report, history=hist,
+                                                        client=OpenAI(api_key=key))
+                        except Exception as e2:
+                            ans, trace, sus = f"오류가 발생했어요: {e2}", [], []
                 st.markdown(ans)
                 if sus:
                     st.warning(f"근거 확인 필요: 답변의 숫자 {', '.join(sus[:5])}는 시뮬레이터 결과에서 찾지 못했어요.")
                 else:
                     st.success("근거 검사 통과: 답변의 숫자가 모두 시뮬레이터 결과에서 나왔어요.", icon="✅")
-                with st.expander(f"🔧 에이전트가 호출한 도구 {len(trace)}개"):
+                with st.expander(f"🔧 에이전트가 호출한 도구 {len(trace)}개 · 엔진: {used}"):
                     for t in trace:
                         st.markdown(f"**{t['tool']}**")
                         st.json(t["args"], expanded=False)
@@ -162,8 +176,8 @@ with tab_opt:
                            partner_floor=floor, hs_budget=budget or None, safe=safe,
                            shares=shares, top_k=5, allow_partner_initiated=partner_initiated)
     base = allres.attrs["baseline"]
-    maxp = allres[(allres.card_pct == 10) & (allres.gift_level == 2) & (allres.no_interest == 1)
-                  & (allres.points_pct == 5) & (allres.addon_min == 30)].iloc[0]
+    maxp = allres[(allres.disc_pct == 15) & (allres.gift_level == 2) & (allres.noint_months == 12)
+                  & (allres.points_pct == 3) & (allres.addon_min == 30)].iloc[0]
 
     if len(top) == 0:
         st.error("조건을 만족하는 조합이 없어요. 협력사 하한이나 예산을 완화해 보세요.")
@@ -176,7 +190,7 @@ with tab_opt:
                   f"90% 구간 {krw(best['hs_delta_lo'])} ~ {krw(best['hs_delta_hi'])}", delta_color="off")
         m3.metric("이익 증가 확률", f"{best['p_better'] * 100:.0f}%")
         m4.metric("협력사 이익 변화", krw(best["partner_delta"]))
-        st.info(f"참고: 혜택을 최대로 다 걸면 (카드 10%+사은품 고급형+무이자+적립 5%+30분 추가혜택) "
+        st.info(f"참고: 혜택을 최대로 다 걸면 (즉시할인 15%+전고객 증정+무이자 12개월+추가적립 3%+30분 추가혜택) "
                 f"주문은 {maxp['lift_pct']:+.1f}% 늘지만 홈쇼핑 이익 변화는 **{krw(maxp['hs_delta'])}**, "
                 f"당겨쓰기로 방송 후 7일 주문 {maxp['pull_forward_orders']:,.0f}건 감소.")
 
@@ -219,11 +233,11 @@ with tab_sim:
         with col:
             st.markdown(f"**조합 {'AB'[i]}**")
             p = dict(
-                card_pct=st.select_slider("카드 청구할인 %", [0, 5, 7, 10], value=[10, 0][i], key=f"c{i}"),
+                disc_pct=st.select_slider("즉시할인 %", [0, 5, 10, 15], value=[10, 0][i], key=f"c{i}"),
                 gift_level=st.select_slider("사은품", [0, 1, 2], value=[0, 2][i],
                                             format_func=GIFT_LABEL.get, key=f"g{i}"),
-                no_interest=int(st.toggle("무이자 할부", value=[True, False][i], key=f"n{i}")),
-                points_pct=st.select_slider("적립금 %", [0, 3, 5], value=0, key=f"p{i}"),
+                noint_months=st.select_slider("무이자 개월", [0, 3, 10, 12], value=10, key=f"n{i}"),
+                points_pct=st.select_slider("추가 적립 %", [0, 1, 3], value=0, key=f"p{i}"),
                 addon_min=st.select_slider("추가혜택 투입(분, 0=없음)", ADDON_OPTIONS, value=0, key=f"a{i}"))
             promos.append(p)
     res = evaluate(model, ctx, promos, shares)
@@ -236,12 +250,12 @@ with tab_sim:
             st.caption(f"이익 증가 확률 {r['p_better'] * 100:.0f}% · 협력사 {krw(r['partner_delta'])} · "
                        f"당겨쓰기 {r['pull_forward_orders']:,.0f}건")
     cost = pd.DataFrame({
-        "조합": [f"A: {res.iloc[0]['label']}"] * 3 + [f"B: {res.iloc[1]['label']}"] * 3,
-        "부담 주체": ["홈쇼핑", "협력사", "카드사"] * 2,
-        "판촉비(만원)": [res.iloc[0][k] / 1e4 for k in ["hs_cost", "partner_cost", "cardco_cost"]]
-                     + [res.iloc[1][k] / 1e4 for k in ["hs_cost", "partner_cost", "cardco_cost"]]})
+        "조합": [f"A: {res.iloc[0]['label']}"] * 2 + [f"B: {res.iloc[1]['label']}"] * 2,
+        "부담 주체": ["홈쇼핑", "협력사"] * 2,
+        "판촉비(만원)": [res.iloc[0][k] / 1e4 for k in ["hs_cost", "partner_cost"]]
+                     + [res.iloc[1][k] / 1e4 for k in ["hs_cost", "partner_cost"]]})
     st.plotly_chart(px.bar(cost, x="조합", y="판촉비(만원)", color="부담 주체", barmode="stack",
-                           color_discrete_map={"홈쇼핑": RED, "협력사": "#555", "카드사": "#AAA"},
+                           color_discrete_map={"홈쇼핑": RED, "협력사": "#555"},
                            title="판촉비는 누가 내는가"), width="stretch")
 
 

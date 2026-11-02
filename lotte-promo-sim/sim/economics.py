@@ -1,7 +1,7 @@
 """
 손익 계산 + 최적안 탐색.
 
-홈쇼핑 프로모션 비용은 세 주체가 나눠 낸다: 홈쇼핑 / 협력사 / 카드사.
+홈쇼핑 프로모션 비용은 홈쇼핑과 협력사가 나눠 낸다 (카드 청구할인은 상시 혜택이라 제외).
 그래서 '매출이 가장 큰 조합'이 아니라
 '홈쇼핑 이익이 가장 크면서 협력사도 받아들일 수 있는 조합'을 찾는다.
 또 방송 후 7일 주문 감소(당겨쓰기)까지 빼서 '진짜 증분 이익'으로 판단한다.
@@ -11,19 +11,19 @@ import numpy as np
 import pandas as pd
 
 from .minute_profile import share_after
-from .config import (CATEGORIES, SLOT_COST, CARD_OPTIONS, GIFT_OPTIONS, NOINT_OPTIONS,
-                     POINT_OPTIONS, ADDON_OPTIONS, GIFT_COST_RATIO, NOINT_COST_RATIO,
+from .config import (CATEGORIES, SLOT_COST, DISC_OPTIONS, GIFT_OPTIONS, NOINT_OPTIONS,
+                     POINT_OPTIONS, ADDON_OPTIONS, GIFT_COST_RATIO, NOINT_COST_PER_MONTH,
                      POINT_REDEEM, ADDON_COST_RATIO, DEFAULT_SHARES, PARTNER_SHARE_LIMIT,
                      promo_label)
 
-NO_PROMO = dict(card_pct=0, gift_level=0, no_interest=0, points_pct=0, addon_min=0)
+NO_PROMO = dict(disc_pct=0, gift_level=0, noint_months=0, points_pct=0, addon_min=0)
 
 
 def all_combos(include_addon=True):
     addons = ADDON_OPTIONS if include_addon else [0]
-    for c, g, n, p, a in itertools.product(CARD_OPTIONS, GIFT_OPTIONS, NOINT_OPTIONS,
+    for c, g, n, p, a in itertools.product(DISC_OPTIONS, GIFT_OPTIONS, NOINT_OPTIONS,
                                            POINT_OPTIONS, addons):
-        yield dict(card_pct=c, gift_level=g, no_interest=n, points_pct=p, addon_min=a)
+        yield dict(disc_pct=c, gift_level=g, noint_months=n, points_pct=p, addon_min=a)
 
 
 def pnl(ctx, promo, orders, post7, base_post7, shares=None):
@@ -36,18 +36,18 @@ def pnl(ctx, promo, orders, post7, base_post7, shares=None):
     P, c, cr = ctx["price"], cat["commission"], cat["cost_ratio"]
     gmv = orders * P                                   # 취급고
 
-    card = gmv * promo["card_pct"] / 100
+    disc = gmv * promo["disc_pct"] / 100
     gift = orders * P * GIFT_COST_RATIO[promo["gift_level"]]
-    noint = gmv * NOINT_COST_RATIO * promo["no_interest"]
+    noint = gmv * NOINT_COST_PER_MONTH * promo["noint_months"]
     points = gmv * promo["points_pct"] / 100 * POINT_REDEEM
     addon = orders * share_after(promo["addon_min"]) * P * ADDON_COST_RATIO
 
-    hs_cost = (card * s["card"]["hs"] + gift * s["gift"]["hs"] + noint * s["noint"]["hs"]
+    hs_cost = (disc * s["disc"]["hs"] + gift * s["gift"]["hs"] + noint * s["noint"]["hs"]
                + points * s["points"]["hs"] + addon * s["addon"]["hs"])
-    pt_cost = (card * s["card"]["partner"] + gift * s["gift"]["partner"]
+    pt_cost = (disc * s["disc"]["partner"] + gift * s["gift"]["partner"]
                + noint * s["noint"]["partner"] + points * s["points"]["partner"]
                + addon * s["addon"]["partner"])
-    cardco_cost = card * s["card"]["cardco"]
+    cardco_cost = disc * 0.0          # 카드사 분담 없음 (호환용)
 
     # 당겨쓰기: 방송 후 7일 주문이 기준보다 줄어든 만큼 미래 이익 손실
     lost_post = (base_post7 - post7) * P
@@ -119,7 +119,8 @@ def optimize(model, ctx, objective="hs", partner_floor=0.0, hs_budget=None,
         feasible = feasible[feasible["legal_ok"]]       # 대규모유통업법 50% 분담 상한
     if hs_budget is not None:
         feasible = feasible[feasible["hs_cost"] <= hs_budget]
-    feasible = feasible[feasible["p_better"] >= min_p_better]
+    # 보수 모드: 협력사 조건뿐 아니라 홈쇼핑 이익도 비관적 시나리오에서 손해가 아닌 조합만
+    feasible = feasible[feasible["p_better"] >= (max(min_p_better, 0.9) if safe else min_p_better)]
     key = "hs_delta" if objective == "hs" else "_joint"
     feasible = feasible.assign(_joint=feasible["hs_delta"] + feasible["partner_delta"])
     ranked = feasible.sort_values(key, ascending=False)

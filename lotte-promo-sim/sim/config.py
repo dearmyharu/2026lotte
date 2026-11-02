@@ -23,28 +23,33 @@ SLOT_COST = {
 }
 
 # ── 프로모션 선택지 ──────────────────────────────────────────────────
-CARD_OPTIONS = [0, 5, 7, 10]       # 카드 청구할인 %
-GIFT_OPTIONS = [0, 1, 2]           # 사은품: 0 없음 / 1 실속형 / 2 고급형
-GIFT_COST_RATIO = {0: 0.0, 1: 0.03, 2: 0.07}   # 사은품 원가 = 판매가 × 비율
-NOINT_OPTIONS = [0, 1]             # 무이자 할부 여부
-NOINT_COST_RATIO = 0.035           # 무이자 할부 수수료(판매가 대비)
-POINT_OPTIONS = [0, 3, 5]          # 적립금 %
+# 선택지는 롯데홈쇼핑 공개 편성표(2026.10.23~11.1, 방송 229회)와 상품 상세 표본 39개 관찰에 맞췄다.
+#  · 즉시할인(표시할인·쿠폰·일시불·TV쇼핑할인): 방송의 30%만 사용, 사용 시 중앙값 10%, 상위 25% 15%
+#  · 무이자: 방송의 93%가 제공 → 켜고 끄는 게 아니라 '개월 수'(관찰: 3/10/12개월)가 변수
+#  · 사은품: '방송에서만' 구성 추가·전고객 증정, '리뷰 시 증정' 같은 조건부 증정이 실제 형태
+#  · 카드 청구할인: 표본 39개 모두 '롯데카드 5%'로 동일 → 방송별 변수가 아닌 상시 혜택이라 제외
+DISC_OPTIONS = [0, 5, 10, 15]      # 즉시할인 %
+GIFT_OPTIONS = [0, 1, 2]           # 사은품: 0 없음 / 1 조건부 증정(리뷰 시) / 2 전고객 증정·구성 추가
+GIFT_COST_RATIO = {0: 0.0, 1: 0.02, 2: 0.07}   # 사은품 원가 = 판매가 × 비율 (조건부는 일부만 수령)
+NOINT_OPTIONS = [0, 3, 10, 12]     # 무이자 할부 개월 수 (0 = 일시불만)
+NOINT_COST_PER_MONTH = 0.004       # 무이자 1개월당 할부 수수료(판매가 대비, 가정값)
+POINT_OPTIONS = [0, 1, 3]          # 추가 적립 % (기본 L.POINT 적립 0.1~0.5%와 별도)
 POINT_REDEEM = 0.7                 # 적립금 실제 사용률
 ADDON_OPTIONS = [0, 15, 30, 45]    # 방송 중 추가혜택 투입 시점(분). 0 = 투입 안 함
 ADDON_COST_RATIO = 0.02            # 추가혜택 원가 = 판매가 × 비율 (투입 후 주문에만 적용)
 
-PROMO_COLS = ["card_pct", "gift_level", "no_interest", "points_pct", "addon_min"]
+PROMO_COLS = ["disc_pct", "gift_level", "noint_months", "points_pct", "addon_min"]
 CONTEXT_COLS = ["category", "price", "popularity", "slot", "weekend", "host_tier"]
 
-GIFT_LABEL = {0: "없음", 1: "실속형", 2: "고급형"}
+GIFT_LABEL = {0: "없음", 1: "조건부 증정", 2: "전고객 증정"}
 
 # ── 비용 분담 기본값 (홈쇼핑 / 협력사 / 카드사) ──────────────────────
 # 대규모유통업법 제11조: 판촉비용 중 납품업자(협력사) 분담은 50%를 넘을 수 없다
 #   (서면 약정 필수, 협력사가 자발적으로 요청한 차별화 행사는 예외).
 # 2021년 공정위는 사은품 비용 전부를 협력사에 부담시킨 TV홈쇼핑 6개사를 제재했다.
-# → 기본값은 '법 준수 분담'으로 둔다. 카드사 분담분은 카드사가 별도로 내는 비용.
+# → 기본값은 '법 준수 분담'으로 둔다.
 DEFAULT_SHARES = {
-    "card":   {"hs": 0.3, "partner": 0.3, "cardco": 0.4},
+    "disc":   {"hs": 0.5, "partner": 0.5},
     "gift":   {"hs": 0.5, "partner": 0.5},
     "noint":  {"hs": 0.5, "partner": 0.5},
     "points": {"hs": 1.0, "partner": 0.0},
@@ -56,14 +61,14 @@ PARTNER_SHARE_LIMIT = 0.5   # 협력사 판촉비 분담 상한 (대규모유통
 def promo_label(p: dict) -> str:
     """프로모션 조합을 사람이 읽는 문장으로."""
     parts = []
-    if p["card_pct"]:
-        parts.append(f"카드 {p['card_pct']}%")
+    if p["disc_pct"]:
+        parts.append(f"즉시할인 {p['disc_pct']}%")
     if p["gift_level"]:
-        parts.append(f"사은품 {GIFT_LABEL[p['gift_level']]}")
-    if p["no_interest"]:
-        parts.append("무이자")
+        parts.append(GIFT_LABEL[p['gift_level']])
+    if p["noint_months"]:
+        parts.append(f"무이자 {p['noint_months']}개월")
     if p["points_pct"]:
-        parts.append(f"적립 {p['points_pct']}%")
+        parts.append(f"추가적립 {p['points_pct']}%")
     if p["addon_min"]:
         parts.append(f"{p['addon_min']}분 추가혜택")
     return " + ".join(parts) if parts else "프로모션 없음"

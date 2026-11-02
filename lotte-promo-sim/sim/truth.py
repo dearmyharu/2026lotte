@@ -7,9 +7,9 @@
 """
 import numpy as np
 
-# 카테고리마다 혜택에 반응하는 정도가 다르다 (예: 가전은 무이자·카드, 뷰티는 사은품)
+# 카테고리마다 혜택에 반응하는 정도가 다르다 (예: 가전은 무이자·할인, 뷰티는 증정·구성)
 SENSITIVITY = {
-    #            카드   사은품  무이자  적립   당겨쓰기율
+    #            할인   사은품  무이자  적립   당겨쓰기율
     "뷰티":     (0.6,  1.4,   0.1,   0.6,  0.35),
     "건강식품": (0.8,  0.9,   0.2,   0.9,  0.45),
     "패션":     (0.9,  0.6,   0.3,   0.5,  0.15),
@@ -32,14 +32,14 @@ def base_mu(category, price, ref_price, popularity, slot, weekend, host_tier):
     return mu
 
 
-def promo_lift(category, card_pct, gift_level, no_interest, points_pct, addon_min):
+def promo_lift(category, disc_pct, gift_level, noint_months, points_pct, addon_min):
     """프로모션의 '진짜' 효과(배수 - 1). 혜택을 겹칠수록 효과가 체감된다."""
     s_card, s_gift, s_ni, s_pt, _ = SENSITIVITY[category]
     L = 0.0
-    L += s_card * 0.35 * (1 - np.exp(-card_pct / 6))
+    L += s_card * 0.40 * (1 - np.exp(-disc_pct / 8))
     L += s_gift * {0: 0.0, 1: 0.10, 2: 0.16}[int(gift_level)]
-    L += s_ni * 0.18 * no_interest
-    L += s_pt * 0.25 * (1 - np.exp(-points_pct / 3))
+    L += s_ni * 0.20 * (1 - np.exp(-noint_months / 6))
+    L += s_pt * 0.12 * (1 - np.exp(-points_pct / 1.5))
     L += ADDON_LIFT[int(addon_min)]
     return L / (1 + 0.6 * L)          # 체감(포화) 효과
 

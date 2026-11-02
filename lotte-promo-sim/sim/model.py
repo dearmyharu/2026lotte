@@ -27,7 +27,7 @@ SLOT_CODE = {s: i for i, s in enumerate(SLOTS)}
 ADDON_CODE = {a: i for i, a in enumerate(ADDON_OPTIONS)}
 
 FEATURES = ["category", "slot", "addon", "log_price_rel", "popularity", "weekend", "host_a",
-            "card_pct", "gift_level", "no_interest", "points_pct"]
+            "disc_pct", "gift_level", "noint_months", "points_pct"]
 IS_CATEGORICAL = [True, True, True] + [False] * 8
 
 
@@ -41,9 +41,9 @@ def featurize(df: pd.DataFrame) -> np.ndarray:
         "popularity": df["popularity"],
         "weekend": df["weekend"],
         "host_a": (df["host_tier"] == "A").astype(int),
-        "card_pct": df["card_pct"],
+        "disc_pct": df["disc_pct"],
         "gift_level": df["gift_level"],
-        "no_interest": df["no_interest"],
+        "noint_months": df["noint_months"],
         "points_pct": df["points_pct"],
     })
     return X[FEATURES].to_numpy(dtype=float)
@@ -97,17 +97,18 @@ def glm_features(d: pd.DataFrame) -> pd.DataFrame:
                       "가격(상대)": np.log(d["price"].to_numpy() / ref)})
     for s in _SLOTS[1:]:
         o[s] = (d["slot"].to_numpy() == s) * 1.
-    for v in [5, 7, 10]:
-        o[f"카드{v}%"] = (d["card_pct"].to_numpy() == v) * 1.
-    for v, name in [(1, "사은품 실속형"), (2, "사은품 고급형")]:
+    for v in [5, 10, 15]:
+        o[f"즉시할인{v}%"] = (d["disc_pct"].to_numpy() == v) * 1.
+    for v, name in [(1, "조건부 증정"), (2, "전고객 증정·구성추가")]:
         o[name] = (d["gift_level"].to_numpy() == v) * 1.
-    o["무이자"] = d["no_interest"].to_numpy() * 1.
-    for v in [3, 5]:
-        o[f"적립{v}%"] = (d["points_pct"].to_numpy() == v) * 1.
+    for v in [3, 10, 12]:
+        o[f"무이자{v}개월"] = (d["noint_months"].to_numpy() == v) * 1.
+    for v in [1, 3]:
+        o[f"추가적립{v}%"] = (d["points_pct"].to_numpy() == v) * 1.
     for v in [15, 30, 45]:
         o[f"추가혜택{v}분"] = (d["addon_min"].to_numpy() == v) * 1.
-    k = ((d["card_pct"].to_numpy() > 0) * 1 + (d["gift_level"].to_numpy() > 0)
-         + d["no_interest"].to_numpy() + (d["points_pct"].to_numpy() > 0)
+    k = ((d["disc_pct"].to_numpy() > 0) * 1 + (d["gift_level"].to_numpy() > 0)
+         + (d["noint_months"].to_numpy() > 0) + (d["points_pct"].to_numpy() > 0)
          + (d["addon_min"].to_numpy() > 0))
     o["혜택겹침"] = np.maximum(k - 1, 0) * 1.     # 혜택을 겹칠수록 효과가 줄어드는 정도
     return o
@@ -144,13 +145,13 @@ class GLMModel:
     def coefficients(self, category: str) -> pd.DataFrame:
         """혜택별 효과(%)와 90% 구간 — MD에게 보여줄 '혜택 반응표'."""
         names = glm_features(pd.DataFrame([dict(category=category, price=1, popularity=0,
-                    weekend=0, host_tier="B", slot=_SLOTS[0], card_pct=0, gift_level=0,
-                    no_interest=0, points_pct=0, addon_min=0)])).columns
+                    weekend=0, host_tier="B", slot=_SLOTS[0], disc_pct=0, gift_level=0,
+                    noint_months=0, points_pct=0, addon_min=0)])).columns
         C = np.array([mo.coef_ for mo, _ in self.models[category]])
         eff = (np.exp(C) - 1) * 100
         out = pd.DataFrame({"항목": names, "효과(%)": eff.mean(0),
                             "하한": np.percentile(eff, 5, 0), "상한": np.percentile(eff, 95, 0)})
-        promo_terms = [n for n in names if any(k in n for k in ["카드", "사은품", "무이자", "적립", "추가혜택", "겹침"])]
+        promo_terms = [n for n in names if any(k in n for k in ["할인", "증정", "무이자", "적립", "추가혜택", "겹침"])]
         return out[out["항목"].isin(promo_terms)].reset_index(drop=True)
 
 

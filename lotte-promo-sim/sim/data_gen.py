@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from . import truth
-from .config import CATEGORIES, SLOTS, CARD_OPTIONS, GIFT_OPTIONS, POINT_OPTIONS, ADDON_OPTIONS
+from .config import CATEGORIES, SLOTS, DISC_OPTIONS, GIFT_OPTIONS, NOINT_OPTIONS, POINT_OPTIONS, ADDON_OPTIONS
 
 
 def _pick(rng, options, intensity):
@@ -40,16 +40,18 @@ def generate(n=6000, seed=42, explore_rate=0.0):
         # MD의 혜택 결정 (교란): 잘 팔릴 방송일수록 혜택을 세게
         intensity = (0.9 * (slot == "프라임(20-23)") + 0.5 * pop
                      + 0.4 * (host == "A") + rng.normal(0, 0.5))
-        card = _pick(rng, CARD_OPTIONS, intensity)
-        gift = _pick(rng, GIFT_OPTIONS, intensity)
-        noint = int(rng.random() < (0.75 if cat == "생활가전" else 0.2) * (1 + 0.3 * np.tanh(intensity)))
-        pts = _pick(rng, POINT_OPTIONS, intensity)
+        # 관찰값에 맞춘 편성 습관: 즉시할인은 방송의 약 30%, 무이자는 약 93%
+        card = _pick(rng, DISC_OPTIONS, intensity - 1.8)
+        gift = _pick(rng, GIFT_OPTIONS, intensity - 1.0)
+        noint = 0 if rng.random() < 0.07 else _pick(rng, NOINT_OPTIONS[1:],
+                                                     intensity + (0.8 if cat == "생활가전" else 0.0))
+        pts = _pick(rng, POINT_OPTIONS, intensity - 0.8)
         addon = _pick(rng, ADDON_OPTIONS, 0.3 * intensity)
         explore = int(rng.random() < explore_rate)
         if explore:   # 탐색 방송: 방송 조건과 무관하게 혜택을 무작위 편성
-            card = CARD_OPTIONS[rng.integers(len(CARD_OPTIONS))]
+            card = DISC_OPTIONS[rng.integers(len(DISC_OPTIONS))]
             gift = GIFT_OPTIONS[rng.integers(len(GIFT_OPTIONS))]
-            noint = int(rng.integers(2))
+            noint = NOINT_OPTIONS[rng.integers(len(NOINT_OPTIONS))]
             pts = POINT_OPTIONS[rng.integers(len(POINT_OPTIONS))]
             addon = ADDON_OPTIONS[rng.integers(len(ADDON_OPTIONS))]
 
@@ -64,7 +66,7 @@ def generate(n=6000, seed=42, explore_rate=0.0):
 
         rows.append(dict(broadcast_id=f"B{i:05d}", date=date.date(), category=cat, price=price,
                          popularity=round(pop, 3), slot=slot, weekend=weekend, host_tier=host,
-                         card_pct=card, gift_level=gift, no_interest=noint, points_pct=pts,
+                         disc_pct=card, gift_level=gift, noint_months=noint, points_pct=pts,
                          addon_min=addon, explore=explore, orders=orders, post7_orders=post7))
         truth_rows.append(dict(broadcast_id=f"B{i:05d}", true_base_mu=mu0, true_mu=mu,
                                true_post_mu=post_mu))
@@ -73,7 +75,7 @@ def generate(n=6000, seed=42, explore_rate=0.0):
 
 if __name__ == "__main__":
     import os
-    df, tr = generate(explore_rate=0.1)
+    df, tr = generate(explore_rate=0.2)
     os.makedirs("data", exist_ok=True)
     df.to_csv("data/broadcasts.csv", index=False)
     tr.to_csv("data/truth_hidden.csv", index=False)

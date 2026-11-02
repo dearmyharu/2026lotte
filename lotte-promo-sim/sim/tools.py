@@ -7,7 +7,8 @@ LLM은 MD의 질문을 해석해 어떤 도구를 부를지 정하고, 결과를
 import json
 import numpy as np
 
-from .config import CATEGORIES, SLOTS, GIFT_LABEL, ADDON_OPTIONS, promo_label
+from .config import (CATEGORIES, SLOTS, GIFT_LABEL, ADDON_OPTIONS, DISC_OPTIONS, GIFT_OPTIONS,
+                     POINT_OPTIONS, NOINT_OPTIONS, promo_label)
 from .economics import evaluate, optimize, NO_PROMO
 
 
@@ -33,12 +34,16 @@ def make_ctx(category, slot="오후(12-18)", price=None, popularity=0.0, weekend
 
 
 def _promo(d):
+    """혜택 값 검증: 정해진 선택지가 아니면 오류를 돌려줘 에이전트가 스스로 고치게 한다."""
+    allowed = {"disc_pct": DISC_OPTIONS, "gift_level": GIFT_OPTIONS, "noint_months": NOINT_OPTIONS,
+               "points_pct": POINT_OPTIONS, "addon_min": ADDON_OPTIONS}
     p = dict(NO_PROMO)
     for k in p:
         if k in d and d[k] is not None:
-            p[k] = int(d[k])
-    if p["addon_min"] not in ADDON_OPTIONS:
-        p["addon_min"] = min(ADDON_OPTIONS, key=lambda a: abs(a - p["addon_min"]))
+            v = int(d[k])
+            if v not in allowed[k]:
+                raise ValueError(f"{k}={d[k]}는 허용되지 않습니다. 가능한 값: {allowed[k]}")
+            p[k] = v
     return p
 
 
@@ -51,7 +56,7 @@ def _row(r, base):
         "이익증가확률": f"{r['p_better'] * 100:.0f}%",
         "협력사이익변화": krw(r["partner_delta"]),
         "당겨쓰기(방송후7일 감소주문)": f"{r['pull_forward_orders']:,.0f}건",
-        "판촉비부담": f"홈쇼핑 {krw(r['hs_cost'])} / 협력사 {krw(r['partner_cost'])} / 카드사 {krw(r['cardco_cost'])}",
+        "판촉비부담": f"홈쇼핑 {krw(r['hs_cost'])} / 협력사 {krw(r['partner_cost'])}",
         "법규점검": (f"협력사 판촉비 분담 {r['partner_share'] * 100:.0f}% — "
                  + ("대규모유통업법 50% 상한 준수" if r["legal_ok"] else "50% 초과, 위반 소지(협력사 자발적 행사가 아니면 불가)")),
     }
@@ -82,8 +87,8 @@ def recommend_promotion(model, context, objective="hs", partner_floor_krw=0,
     ctx = make_ctx(**context)
     top, allres = optimize(model, ctx, objective=objective, partner_floor=partner_floor_krw,
                            hs_budget=hs_budget_krw, safe=conservative, top_k=top_k)
-    maxp = allres[(allres.card_pct == 10) & (allres.gift_level == 2) & (allres.no_interest == 1)
-                  & (allres.points_pct == 5) & (allres.addon_min == 30)].iloc[0]
+    maxp = allres[(allres.disc_pct == 15) & (allres.gift_level == 2) & (allres.noint_months == 12)
+                  & (allres.points_pct == 3) & (allres.addon_min == 30)].iloc[0]
     out = {"방송조건": ctx, **_base_info(allres),
            "탐색한 조합 수": f"{len(allres)}개",
            "제약": {"목표": "홈쇼핑 이익" if objective == "hs" else "홈쇼핑+협력사 합계",
@@ -134,6 +139,7 @@ def model_validation(report):
 INDUSTRY_FACTS = {
     "업황": "TV홈쇼핑 7개사 TV방송 매출 2025년 2조6,181억원, 4년 연속 감소(2012년 이후 최저), 전체 매출 중 방송 비중 51.5%(2021)→46.7%(2025) [뉴시스 2026.7]",
     "롯데홈쇼핑실적": "2025년 매출 9,023억원(-2.4%), 영업이익 450억원(-9.6%) / 2026년 2분기 매출 2,386억원(+3.3%), 영업이익 199억원(+62.7%), 고마진 상품(건강식품·뷰티) 비중 확대와 판관비 절감 [인더뉴스 2026.2, 파이낸셜뉴스 2026.8]",
+    "관찰데이터": "롯데홈쇼핑 공개 편성표 2026.10.23~11.1 방송 229회 관찰: 무이자 제공 93%, 즉시할인 사용 30%(중앙값 10%), 카드 청구할인은 상세 표본 39개 모두 롯데카드 5%로 동일, '방송에서만' 표현 18%, 구성 추가 16%, 리뷰 시 증정 5% [research/ 폴더]",
     "AI편성": "롯데홈쇼핑은 2018년 상품·프로그램·마케팅·외부환경·시청률 등 50여 개 항목으로 시간대별 매출을 예측하는 스마트 AI 편성 시스템 도입 발표 [토요경제 2018.9]",
     "송출수수료": "TV홈쇼핑 7개사 방송매출 대비 73.4%, 롯데홈쇼핑 69.6%(방송매출 5,098억원 중 3,546억원) [토요경제 2026.7]",
     "실질수수료율": "TV홈쇼핑 27.7%로 유통 업태 중 유일하게 상승, 판촉비 지급 납품업체 비율 48.7%로 최고 [공정위 조사, 2025.12 보도]",
@@ -166,10 +172,10 @@ _CTX = {
 _PROMO = {
     "type": "object", "description": "프로모션 조합",
     "properties": {
-        "card_pct": {"type": "integer", "enum": [0, 5, 7, 10], "description": "카드 청구할인 %"},
-        "gift_level": {"type": "integer", "enum": [0, 1, 2], "description": "사은품 0없음 1실속형 2고급형"},
-        "no_interest": {"type": "integer", "enum": [0, 1], "description": "무이자 할부"},
-        "points_pct": {"type": "integer", "enum": [0, 3, 5], "description": "적립금 %"},
+        "disc_pct": {"type": "integer", "enum": [0, 5, 10, 15], "description": "즉시할인 %(표시할인·쿠폰·일시불할인)"},
+        "gift_level": {"type": "integer", "enum": [0, 1, 2], "description": "사은품 0없음 1조건부 증정(리뷰 시) 2전고객 증정·구성 추가"},
+        "noint_months": {"type": "integer", "enum": [0, 3, 10, 12], "description": "무이자 할부 개월 수(0=일시불)"},
+        "points_pct": {"type": "integer", "enum": [0, 1, 3], "description": "추가 적립 %"},
         "addon_min": {"type": "integer", "enum": [0, 15, 30, 45], "description": "방송 중 추가혜택 투입 시점(분)"},
     },
 }
@@ -185,7 +191,7 @@ TOOL_SCHEMAS = [
         {"context": _CTX, "promotion": _PROMO}, ["context", "promotion"]),
     _fn("compare_promotions", "여러 프로모션 조합을 같은 방송 조건에서 비교",
         {"context": _CTX, "promotions": {"type": "array", "items": _PROMO}}, ["context", "promotions"]),
-    _fn("recommend_promotion", "가능한 모든 조합(288개)을 탐색해 제약 조건 하 최적 조합 추천",
+    _fn("recommend_promotion", "가능한 모든 조합(576개)을 탐색해 제약 조건 하 최적 조합 추천",
         {"context": _CTX,
          "objective": {"type": "string", "enum": ["hs", "joint"], "description": "hs=홈쇼핑 이익, joint=홈쇼핑+협력사"},
          "partner_floor_krw": {"type": "number", "description": "협력사 이익 변화 하한(원). 0=협력사 손해 없음"},

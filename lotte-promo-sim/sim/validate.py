@@ -17,8 +17,8 @@ from .economics import NO_PROMO, all_combos, optimize, pnl
 from .model import PromoModel
 
 LEVERS = {  # (변수, 비교할 값)
-    "카드 10%": ("card_pct", 10), "사은품 고급형": ("gift_level", 2),
-    "무이자 할부": ("no_interest", 1), "적립 5%": ("points_pct", 5),
+    "즉시할인 10%": ("disc_pct", 10), "전고객 증정": ("gift_level", 2),
+    "무이자 12개월": ("noint_months", 12), "추가적립 3%": ("points_pct", 3),
 }
 
 
@@ -81,7 +81,7 @@ def run(df, n_boot=20, n_ctx=60, seed=1):
     # 3) 의사결정 정확도 (oracle 대비). 일반 모드 / 보수 모드(협력사 조건을 비관 시나리오에서도 준수)
     ctxs = test.sample(n_ctx, random_state=seed)[ctx_cols].to_dict("records")
     combos = list(all_combos())
-    maxp = dict(card_pct=10, gift_level=2, no_interest=1, points_pct=5, addon_min=30)
+    maxp = dict(disc_pct=15, gift_level=2, noint_months=12, points_pct=3, addon_min=30)
     oracle, max_promo, picks = [], [], {False: [], True: []}
     for ctx in ctxs:
         vals = [true_hs_delta(ctx, c) for c in combos]

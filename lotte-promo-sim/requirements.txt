@@ -4,3 +4,4 @@ numpy>=1.26
 scikit-learn>=1.5
 plotly>=5.20
 openai>=1.40
+openai-agents>=0.2
